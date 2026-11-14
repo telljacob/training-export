@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Training Export</title>
+<style>
+:root{
+  --bg:#1f2228; --panel:#262a31; --line:#30343c; --line2:#3b404a;
+  --ink:#e8eaee; --ink2:#a9afba; --ink3:#7d8491; --acc:#5aa0d8; --ok:#5fbf86; --no:#e07a66;
+  --f:'Segoe UI',system-ui,-apple-system,sans-serif; --mono:Consolas,ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 var(--f)}
+main{padding:18px 20px 28px;display:grid;gap:16px}
+h1{font-size:16px;font-weight:600;margin:0}
+.sub{color:var(--ink3);font-size:11.5px}
+.big{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:grid;gap:12px}
+.status{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:10px}
+.what{font-weight:600}
+.det{color:var(--ink3);font-size:11.5px;font-variant-numeric:tabular-nums}
+button{font:inherit;font-size:12.5px;border:1px solid var(--line2);background:transparent;color:var(--ink);border-radius:6px;padding:6px 12px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--ink3)}
+button.pri{background:var(--acc);border-color:var(--acc);color:#0d1620;font-weight:600}
+button:disabled{opacity:.45;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.link{border:0;padding:0;color:var(--acc);background:none}
+.prog{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.prog i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
+.msg{font-size:12.5px;color:var(--ink2);min-height:1.5em}
+.msg.err{color:var(--no)} .msg.ok{color:var(--ok)}
+.steps{display:grid;gap:14px;counter-reset:s}
+.step{display:grid;grid-template-columns:24px 1fr;gap:10px}
+.step::before{counter-increment:s;content:counter(s);width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;font-size:11px;color:var(--ink2)}
+.step > div{display:grid;gap:6px}
+input[type=password],input[type=text],input[type=time],select{font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 8px}
+input[type=password]{font-family:var(--mono);width:100%}
+.line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.path{font-family:var(--mono);font-size:11.5px;color:var(--ink2);overflow-wrap:anywhere}
+details summary{cursor:pointer;font-weight:600;list-style:none}
+details summary::before{content:"▸ ";color:var(--ink3)}
+details[open] summary::before{content:"▾ "}
+fieldset{border:0;margin:0;padding:0;display:grid;gap:6px}
+legend{font-weight:600;margin-bottom:4px;padding:0}
+label{display:flex;gap:8px;align-items:center}
+.times{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line2);border-radius:99px;padding:2px 4px 2px 10px;font-variant-numeric:tabular-nums}
+.chip button{border:0;padding:0 6px;color:var(--ink3)}
+.kinds{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
+.foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--ink3);font-size:11.5px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <!-- first run -->
+  <section id="setup" hidden>
+    <div class="card">
+      <h1>Set up Training Export</h1>
+      <div class="sub">Downloads your own Garmin activities and health data into a folder on this computer, through Garmin's official Personal API.</div>
+      <div class="steps">
+        <div class="step"><div>
+          <div>On Garmin Connect (web), make a Personal API key: Personal API Key → Create. One year is the longest. Garmin shows the key once, so copy it.</div>
+          <div><button id="openKeyPage">Open Garmin Connect</button></div>
+        </div></div>
+        <div class="step"><div>
+          <div>Paste the key here. It's kept in Windows' own password store on this computer and sent only to Garmin.</div>
+          <input id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Your Personal API key" aria-label="Personal API key">
+          <div class="line"><button id="saveKey" class="pri">Check and save key</button><span id="keyMsg" class="msg"></span></div>
+        </div></div>
+        <div class="step" id="stepThree"><div>
+          <div class="line">How far back: <select id="firstMonthsSetup" aria-label="How far back"></select></div>
+          <div class="line">Folder: <span class="path" id="folderSetup"></span> <button class="link" id="changeFolderSetup">Change</button></div>
+          <div class="line"><button id="startFirst" class="pri" disabled>Start first export</button><button id="backHome" hidden>Back</button></div>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- every later time -->
+  <section id="home" hidden>
+    <div class="card">
+      <div class="status">
+        <div><div class="sub" id="latestLabel">Latest export</div><div class="big" id="latest">Never</div></div>
+        <div class="line"><button id="refresh" class="pri">Refresh export</button><button id="stop" hidden>Stop</button></div>
+      </div>
+      <div id="progWrap" hidden><div class="prog"><i id="prog"></i></div><div class="det" id="progLabel"></div></div>
+      <div class="msg" id="runMsg" role="status" aria-live="polite"></div>
+      <div class="row"><div><div class="what">New since last time</div><div class="det" id="newDet">Nothing yet</div></div><button id="openNew" class="pri">Open folder</button></div>
+      <div class="row"><div><div class="what">Everything so far</div><div class="det" id="allDet"></div></div><button id="openAll">Open folder</button></div>
+      <div class="det">Drag the files from the new folder onto your training app's upload page. A file uploaded twice is skipped there.</div>
+    </div>
+
+    <details class="card" id="settingsBox">
+      <summary>Settings</summary>
+      <fieldset>
+        <legend>When to refresh</legend>
+        <label><input type="radio" name="mode" value="manual" id="modeManual"> When I press Refresh</label>
+        <label style="margin-left:24px"><input type="checkbox" id="onOpen"> Also each time I open this window</label>
+        <label><input type="radio" name="mode" value="auto" id="modeAuto"> Automatically, at these times every day</label>
+        <div id="autoBox" style="margin-left:24px;display:grid;gap:6px">
+          <div class="times" id="times"></div>
+          <div class="line"><input type="time" id="newTime" aria-label="Add a time"><button id="addTime">Add time</button></div>
+          <div class="det" id="timesNote"></div>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Health data to include</legend>
+        <div class="kinds" id="kinds"></div>
+      </fieldset>
+      <fieldset>
+        <legend>Folder</legend>
+        <div class="line"><span class="path" id="folder"></span><button class="link" id="changeFolder">Change</button></div>
+        <div class="det">A new folder starts a fresh export there.</div>
+      </fieldset>
+      <fieldset>
+        <legend>First export reaches back</legend>
+        <div><select id="firstMonths" aria-label="First export reaches back"></select></div>
+      </fieldset>
+      <div class="line"><button id="saveSettings" class="pri">Save settings</button><span class="msg" id="settingsMsg"></span></div>
+    </details>
+
+    <div class="foot"><span>Personal API key saved on this computer</span><span><button class="link" id="changeKey">Change key</button> · <button class="link" id="removeKey">Remove key</button></span></div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = null, draft = null, polling = null;
+
+const monthsLabel = m => m === 0 ? "Everything Garmin has" : (m % 12 === 0 ? `${m / 12} year${m > 12 ? "s" : ""}` : `${m} months`);
+function fmtWhen(iso) {
+  if (!iso) return "Never";
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"}) + ", " +
+         d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
+}
+function fmtDay(iso) { return iso ? new Date(iso + "T12:00").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"}) : ""; }
+function setMsg(el, text, kind) { el.textContent = text || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+
+async function load() {
+  S = await pywebview.api.state();
+  draft = JSON.parse(JSON.stringify(S.settings));
+  const firstRun = !S.has_key || !S.summary.last_export && !S.summary.unfinished && !S.run.running;
+  $("setup").hidden = !firstRun;
+  $("home").hidden = firstRun;
+  for (const sel of [$("firstMonths"), $("firstMonthsSetup")]) {
+    sel.innerHTML = S.first_months.map(m => `<option value="${m}">${monthsLabel(m)}</option>`).join("");
+    sel.value = String(draft.first_months);
+  }
+  $("folderSetup").textContent = $("folder").textContent = draft.folder;
+  $("startFirst").disabled = !S.has_key;
+  const exported = !!(S.summary.last_export || S.summary.unfinished);
+  $("startFirst").hidden = exported;           // changing the key later: no second "first export"
+  $("backHome").hidden = !exported;
+  $("stepThree").hidden = exported;
+  if (S.has_key) setMsg($("keyMsg"), "Key saved.", "ok");
+  renderSummary();
+  renderSettings();
+  if (S.run.running) startPolling();
+}
+
+function renderSummary() {
+  const s = S.summary;
+  $("latest").textContent = s.unfinished ? "Not finished" : fmtWhen(s.last_export);
+  $("latestLabel").textContent = s.unfinished ? "The last refresh stopped part-way" : "Latest export";
+  const bits = [];
+  if (s.latest_new_activities) bits.push(`${s.latest_new_activities} ${s.latest_new_activities === 1 ? "activity" : "activities"}`);
+  if (s.latest_new_health) bits.push("health data");
+  $("newDet").textContent = s.latest_new_name ? `${s.latest_new_name} · ${bits.join(" · ") || "empty"}` : "Nothing yet";
+  $("openNew").disabled = !s.latest_new;
+  $("allDet").textContent = `${s.total_activities} ${s.total_activities === 1 ? "activity" : "activities"}` + (s.first_activity ? ` · from ${fmtDay(s.first_activity)}` : "") +
+                            (s.health_through ? ` · health data to ${fmtDay(s.health_through)}` : "");
+}
+
+function renderSettings() {
+  $("modeManual").checked = draft.mode === "manual";
+  $("modeAuto").checked = draft.mode === "auto";
+  $("onOpen").checked = draft.refresh_on_open;
+  $("onOpen").disabled = draft.mode !== "manual";
+  $("autoBox").style.opacity = draft.mode === "auto" ? 1 : .5;
+  $("times").innerHTML = draft.times.map(t => `<span class="chip">${t}<button data-t="${t}" aria-label="Remove ${t}">✕</button></span>`).join("")
+                         || `<span class="det">No times yet</span>`;
+  $("addTime").disabled = draft.times.length >= S.max_times;
+  $("timesNote").textContent = `Up to ${S.max_times} times a day, at least an hour apart, so Garmin doesn't slow you down. Runs while you're signed in to Windows; a missed time runs when the computer wakes.`;
+  $("kinds").innerHTML = S.kinds.map(k => `<label><input type="checkbox" data-k="${k.id}" ${draft.kinds.includes(k.id) ? "checked" : ""}> ${k.label}</label>`).join("");
+}
+
+function startPolling() {
+  $("refresh").disabled = true; $("stop").hidden = false; $("progWrap").hidden = false;
+  setMsg($("runMsg"), "");
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    const r = await pywebview.api.progress();
+    $("progLabel").textContent = r.n ? `${r.label} ${r.i} of ${r.n}` : r.label;
+    $("prog").style.width = r.n ? (100 * r.i / r.n) + "%" : "8%";
+    if (!r.running) {
+      clearInterval(polling);
+      $("refresh").disabled = false; $("stop").hidden = true; $("progWrap").hidden = true;
+      S = await pywebview.api.state();
+      $("setup").hidden = true; $("home").hidden = false;
+      renderSummary();
+      setMsg($("runMsg"), r.message, r.error ? "err" : "ok");
+    }
+  }, 600);
+}
+
+async function refresh() { if (await pywebview.api.refresh()) startPolling(); }
+
+// setup
+$("openKeyPage").onclick = () => pywebview.api.open_key_page();
+$("saveKey").onclick = async () => {
+  $("saveKey").disabled = true; setMsg($("keyMsg"), "Checking with Garmin…");
+  const r = await pywebview.api.save_key($("keyInput").value);
+  $("keyInput").value = "";
+  $("saveKey").disabled = false;
+  setMsg($("keyMsg"), r.message, r.ok ? "ok" : "err");
+  if (r.ok) { S.has_key = true; $("startFirst").disabled = false; }
+};
+$("firstMonthsSetup").onchange = e => { draft.first_months = +e.target.value; $("firstMonths").value = e.target.value; };
+$("changeFolderSetup").onclick = $("changeFolder").onclick = async () => {
+  const f = await pywebview.api.choose_folder();
+  if (f) { draft.folder = f; $("folderSetup").textContent = $("folder").textContent = f; }
+};
+$("startFirst").onclick = async () => {
+  const r = await pywebview.api.save_settings(draft);
+  if (!r.ok) return setMsg($("keyMsg"), r.message, "err");
+  $("setup").hidden = true; $("home").hidden = false;
+  refresh();
+};
+
+// home
+$("refresh").onclick = refresh;
+$("stop").onclick = () => { pywebview.api.stop(); $("progLabel").textContent = "Stopping after this file…"; };
+$("openNew").onclick = () => pywebview.api.open_folder("new");
+$("openAll").onclick = () => pywebview.api.open_folder("all");
+$("changeKey").onclick = () => { $("home").hidden = true; $("setup").hidden = false; setMsg($("keyMsg"), ""); };
+$("backHome").onclick = () => load();
+$("removeKey").onclick = async () => { await pywebview.api.remove_key(); load(); };
+
+// settings
+document.querySelectorAll("input[name=mode]").forEach(r => r.onchange = e => { draft.mode = e.target.value; renderSettings(); });
+$("onOpen").onchange = e => { draft.refresh_on_open = e.target.checked; };
+$("times").onclick = e => { const t = e.target.dataset.t; if (t) { draft.times = draft.times.filter(x => x !== t); renderSettings(); } };
+$("addTime").onclick = () => {
+  const t = $("newTime").value;
+  if (t && !draft.times.includes(t)) { draft.times = [...draft.times, t].sort(); $("newTime").value = ""; renderSettings(); }
+};
+$("kinds").onchange = e => {
+  const k = e.target.dataset.k; if (!k) return;
+  draft.kinds = e.target.checked ? [...draft.kinds, k] : draft.kinds.filter(x => x !== k);
+};
+$("firstMonths").onchange = e => { draft.first_months = +e.target.value; };
+$("saveSettings").onclick = async () => {
+  const r = await pywebview.api.save_settings(draft);
+  setMsg($("settingsMsg"), r.message, r.ok ? "ok" : "err");
+  if (r.ok) { S = await pywebview.api.state(); draft = JSON.parse(JSON.stringify(S.settings)); renderSettings(); renderSummary(); }
+};
+
+window.addEventListener("pywebviewready", async () => {
+  await load();
+  if (S.has_key && S.settings.mode === "manual" && S.settings.refresh_on_open && S.summary.last_export && !S.run.running) refresh();
+});
+</script>
+</body>
+</html>
