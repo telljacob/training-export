@@ -40,6 +40,7 @@ class Api:
             "summary": exporter.summary(Path(s["folder"])),
             "kinds": [{"id": k, "label": v[0]} for k, v in health.KINDS.items()],
             "first_months": list(settings.FIRST_MONTHS),
+            "suggested_folders": settings.suggested_folders(),
             "max_times": settings.MAX_TIMES,
             "run": dict(self._run),
         }
@@ -91,8 +92,8 @@ class Api:
     def open_folder(self, which):
         s = settings.load()
         root = Path(s["folder"])
-        target = {"new": exporter.summary(root)["latest_new"], "all": str(root / exporter.ALL_DIR),
-                  "root": str(root)}.get(which)
+        sm = exporter.summary(root)
+        target = {"new": sm["latest_new"], "all": sm["all_dir"], "root": str(root)}.get(which)
         if target and Path(target).exists():
             os.startfile(target)
 
@@ -122,16 +123,17 @@ class Api:
 def run_once(progress=None, should_stop=None) -> dict:
     s = settings.load()
     client = garmin.Client(settings.get_key() or "")
-    return exporter.refresh(client, Path(s["folder"]), s["kinds"], s["first_months"],
+    return exporter.refresh(client, Path(s["folder"]), s["kinds"], s["first_months"], sessions=s["sessions"],
                             progress=progress, should_stop=should_stop)
 
 
 def describe(r: dict) -> str:
+    n = r["new_sessions"]
     if r["stopped"]:
-        return f"Stopped after {r['new_activities']} activities. Refresh again to carry on."
+        return f"Stopped after {n} {'session' if n == 1 else 'sessions'}. Refresh again to carry on."
     parts = []
-    if r["new_activities"]:
-        parts.append(f"{r['new_activities']} new {'activity' if r['new_activities'] == 1 else 'activities'}")
+    if n:
+        parts.append(f"{n} new {'session' if n == 1 else 'sessions'}")
     if r["health_days"]:
         parts.append(f"{r['health_days']} days of health data")
     msg = (", ".join(parts) + " ready.") if parts else "Nothing new since last time."

@@ -1,13 +1,17 @@
 r"""
-One refresh: new activities as original .fit files, and health data as one CSV, into a folder of their own.
+One refresh: new sessions as original .fit files, and health data as one CSV, into a folder of their own.
 
     <export folder>\
         New 2026-11-21 0712\        only what this refresh found: the athlete drags all of it onto Upload
             2026-11-21 0712 running 12345678901.fit
             health-2026-11-14-2026-11-21.csv
-        All activities\            every .fit so far, for a fresh start somewhere else
+        All sessions\              every .fit so far, for a fresh start somewhere else
         export-state.json          what is already downloaded (ids and dates only)
         export log.txt             one line per refresh, counts only
+
+Sessions and health data are two parts the athlete can switch on or off. The first export's start (how far back) is
+asked once; after that each part picks up where it got to, and a part switched on later reaches back to that same
+start. Health is tracked per kind, so a kind switched on later (weight, say) catches up the same way.
 
 The health file's name carries its date window (start-end), which is how a training app can tell the newest export
 of a day from an older one. Every health window reaches 7 days back past the last export, because Garmin re-scores a
@@ -30,9 +34,10 @@ from . import garmin, health
 STATE_FILE = "export-state.json"
 LOG_FILE = "export log.txt"
 LOCK_FILE = ".export.lock"
-ALL_DIR = "All activities"
+ALL_DIR = "All sessions"
+OLD_ALL_DIR = "All activities"     # v0.1.0's name, renamed on the first refresh
 HEALTH_OVERLAP_DAYS = 7
-ACTIVITY_OVERLAP_DAYS = 3     # a watch that syncs a day late still has its activity picked up
+ACTIVITY_OVERLAP_DAYS = 3     # a watch that syncs a day late still has its session picked up
 LOCK_STALE_S = 12 * 3600
 MAX_TRIES = 3                 # a download that fails this many refreshes running is left out (said in the log)
 EARLIEST = dt.date(2005, 1, 1)
@@ -74,6 +79,21 @@ def health_csv(rows: list) -> bytes:
     return buf.getvalue().encode("utf-8")
 
 
+def _first_session_date(folder: Path):
+    names = sorted(p.name for p in folder.glob("*.fit")) if folder.exists() else []
+    return names[0][:10] if names and re.match(r"\d{4}-\d{2}-\d{2}", names[0]) else None
+
+
+def _all_dir(root: Path) -> Path:
+    old, new = root / OLD_ALL_DIR, root / ALL_DIR
+    if old.is_dir() and not new.exists():
+        try:
+            old.rename(new)
+        except OSError:
+            return old
+    return new
+
+
 # -- state -----------------------------------------------------------------------------------------------------------
 def load_state(root: Path) -> dict:
     try:
@@ -81,9 +101,18 @@ def load_state(root: Path) -> dict:
     except (OSError, ValueError):
         s = {}
     s.setdefault("done_ids", [])
-    s.setdefault("failures", {})          # activity id -> {"date": day, "tries": n}: tried again next refresh
-    for k in ("last_export", "activities_through", "health_through", "pending"):
+    s.setdefault("failures", {})          # session id -> {"date": day, "tries": n}: tried again next refresh
+    for k in ("last_export", "first_from", "activities_through", "pending"):
         s.setdefault(k, None)
+    ht = s.get("health_through")
+    if isinstance(ht, str):               # v0.1.0 kept one date for every kind (all were on)
+        ht = {k: ht for k in health.ALL_KINDS}
+    s["health_through"] = ht if isinstance(ht, dict) else {}
+    if not s["first_from"] and s["activities_through"]:     # v0.1.0 did not record where the export started
+        s["first_from"] = _first_session_date(root / ALL_DIR) or _first_session_date(root / OLD_ALL_DIR) \
+            or s["activities_through"]
+    if isinstance(s["pending"], dict) and "folder" not in s["pending"]:
+        s["pending"] = None
     return s
 
 
@@ -96,25 +125,24 @@ def summary(root: Path) -> dict:
     s = load_state(root)
     news = sorted((p for p in root.glob("New *") if p.is_dir()), key=lambda p: p.name) if root.exists() else []
     latest = news[-1] if news else None
+    all_dir = root / ALL_DIR if (root / ALL_DIR).exists() else root / OLD_ALL_DIR
+
     def count(folder, pattern):
         return sum(1 for _ in folder.glob(pattern)) if folder and folder.exists() else 0
     return {
         "folder": str(root),
+        "all_dir": str(all_dir),
         "last_export": s["last_export"],
-        "health_through": s["health_through"],
-        "first_activity": _first_activity_date(root / ALL_DIR),
-        "total_activities": count(root / ALL_DIR, "*.fit"),
+        "first_from": s["first_from"],
+        "health_through": max(s["health_through"].values(), default=None),
+        "first_session": _first_session_date(all_dir),
+        "total_sessions": count(all_dir, "*.fit"),
         "latest_new": str(latest) if latest else None,
         "latest_new_name": latest.name if latest else None,
-        "latest_new_activities": count(latest, "*.fit"),
+        "latest_new_sessions": count(latest, "*.fit"),
         "latest_new_health": count(latest, "health-*.csv"),
         "unfinished": bool(s["pending"]),
     }
-
-
-def _first_activity_date(folder: Path):
-    names = sorted(p.name for p in folder.glob("*.fit")) if folder.exists() else []
-    return names[0][:10] if names and re.match(r"\d{4}-\d{2}-\d{2}", names[0]) else None
 
 
 # -- lock ------------------------------------------------------------------------------------------------------------
@@ -142,60 +170,76 @@ class Lock:
 
 
 # -- the refresh -----------------------------------------------------------------------------------------------------
-def refresh(client, root: Path, kinds, first_months: int, now: dt.datetime = None,
+def _from(through, first: dt.date, overlap: int) -> dt.date:
+    """Where a part picks up: a few days before what it already has, or the first export's start."""
+    return dt.date.fromisoformat(through) - dt.timedelta(days=overlap) if through else first
+
+
+def refresh(client, root: Path, kinds, first_months: int, sessions: bool = True, now: dt.datetime = None,
             progress=None, should_stop=None) -> dict:
-    """Run one refresh. Returns counts for the window; raises garmin.GarminError (KeyRejected, RateLimited) or Busy.
-    Whatever was downloaded before an error or a stop is kept, and the next refresh carries on."""
+    """Run one refresh: session files (when `sessions`) and the health kinds in `kinds` (none: no health file).
+    Returns counts for the window; raises garmin.GarminError (KeyRejected, RateLimited) or Busy. Whatever was
+    downloaded before an error or a stop is kept, and the next refresh carries on.
+
+    `first_months` only matters the first time: it sets where the export starts."""
     now = now or dt.datetime.now()
     today = now.date()
     progress = progress or (lambda *a: None)
     should_stop = should_stop or (lambda: False)
+    kinds = [k for k in health.ALL_KINDS if k in (kinds or [])]
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
-    (root / ALL_DIR).mkdir(exist_ok=True)
 
     with Lock(root):
         state = load_state(root)
+        all_dir = _all_dir(root)
+        if not state["first_from"]:
+            state["first_from"] = months_ago(today, first_months).isoformat()
+        first = dt.date.fromisoformat(state["first_from"])
         if state["pending"]:
-            p = state["pending"]
-            batch, act_from, health_from = root / p["folder"], dt.date.fromisoformat(p["act_from"]), \
-                dt.date.fromisoformat(p["health_from"])
+            batch = root / state["pending"]["folder"]
         else:
-            first = months_ago(today, first_months)
-            act_from = first if not state["activities_through"] else \
-                dt.date.fromisoformat(state["activities_through"]) - dt.timedelta(days=ACTIVITY_OVERLAP_DAYS)
-            health_from = first if not state["health_through"] else \
-                dt.date.fromisoformat(state["health_through"]) - dt.timedelta(days=HEALTH_OVERLAP_DAYS)
             batch = root / f"New {now:%Y-%m-%d %H%M}"
-            state["pending"] = {"folder": batch.name, "act_from": act_from.isoformat(),
-                                "health_from": health_from.isoformat()}
+            state["pending"] = {"folder": batch.name}
             save_state(root, state)
         batch.mkdir(exist_ok=True)
+
+        act_from = _from(state["activities_through"], first, ACTIVITY_OVERLAP_DAYS)
         failures = state["failures"]
         retry = [f["date"] for f in failures.values() if f["tries"] < MAX_TRIES]
         if retry:                                   # reach back far enough to try earlier failed downloads again
             act_from = min(act_from, dt.date.fromisoformat(min(retry)))
+        health_from = min((_from(state["health_through"].get(k), first, HEALTH_OVERLAP_DAYS) for k in kinds),
+                          default=today)
 
-        result = {"folder": str(batch), "new_activities": 0, "failed": 0, "health_rows": 0, "health_days": 0,
+        result = {"folder": str(batch), "new_sessions": 0, "failed": 0, "health_rows": 0, "health_days": 0,
                   "stopped": False}
         error = None
         try:
-            progress("Looking for activities", 0, 0)
-            done = set(state["done_ids"])
-            gave_up = {k for k, f in failures.items() if f["tries"] >= MAX_TRIES}
-            acts = [a for a in client.activities(act_from, today)
-                    if a.get("activityId") and int(a["activityId"]) not in done and not a.get("manualActivity")
-                    and str(int(a["activityId"])) not in gave_up]
-            acts.sort(key=lambda a: a.get("startTimeLocal") or "")
-            if acts and health_from == EARLIEST:      # "everything": health from the first activity, not 2005
-                health_from = max(EARLIEST, dt.date.fromisoformat(acts[0]["startTimeLocal"][:10]))
-                state["pending"]["health_from"] = health_from.isoformat()
+            acts = []
+            everything = kinds and health_from <= EARLIEST
+            if sessions or everything:
+                progress("Looking for sessions", 0, 0)
+                listed = client.activities(min(act_from, health_from) if everything else act_from, today)
+                if everything:          # "everything Garmin has": health from the first session, not from 2005
+                    dates = [a["startTimeLocal"][:10] for a in listed if a.get("startTimeLocal")]
+                    health_from = dt.date.fromisoformat(min(dates)) if dates else months_ago(today, 24)
+                if sessions:
+                    done = set(state["done_ids"])
+                    gave_up = {k for k, f in failures.items() if f["tries"] >= MAX_TRIES}
+                    acts = [a for a in listed
+                            if a.get("activityId") and int(a["activityId"]) not in done
+                            and not a.get("manualActivity") and str(int(a["activityId"])) not in gave_up
+                            and (a.get("startTimeLocal") or "")[:10] >= act_from.isoformat()]
+                    acts.sort(key=lambda a: a.get("startTimeLocal") or "")
 
+            if acts:
+                all_dir.mkdir(exist_ok=True)
             for i, a in enumerate(acts, 1):
                 if should_stop():
                     result["stopped"] = True
                     break
-                progress("Activity", i, len(acts))
+                progress("Session", i, len(acts))
                 aid = str(int(a["activityId"]))
                 try:
                     data = client.download_fit(a["activityId"])
@@ -212,11 +256,11 @@ def refresh(client, root: Path, kinds, first_months: int, now: dt.datetime = Non
                     continue
                 name = file_name(a)
                 write_atomic(batch / name, data)
-                write_atomic(root / ALL_DIR / name, data)
+                write_atomic(all_dir / name, data)
                 state["done_ids"].append(int(a["activityId"]))
                 failures.pop(aid, None)
                 save_state(root, state)
-                result["new_activities"] += 1
+                result["new_sessions"] += 1
 
             if not result["stopped"] and kinds:
                 progress("Health data", 0, 0)
@@ -229,8 +273,11 @@ def refresh(client, root: Path, kinds, first_months: int, now: dt.datetime = Non
                 result["health_days"] = len({r[0][:10] for r in rows})
 
             if not result["stopped"]:
-                state.update(pending=None, last_export=now.isoformat(timespec="seconds"),
-                             activities_through=today.isoformat(), health_through=today.isoformat())
+                state.update(pending=None, last_export=now.isoformat(timespec="seconds"))
+                if sessions:
+                    state["activities_through"] = today.isoformat()
+                for k in kinds:
+                    state["health_through"][k] = today.isoformat()
                 save_state(root, state)
                 if not any(batch.iterdir()):
                     batch.rmdir()
@@ -252,7 +299,7 @@ def _log(root: Path, now: dt.datetime, r: dict, error) -> None:
         what = "stopped by you"
     else:
         what = "done"
-    line = (f"{now:%Y-%m-%d %H:%M} {what}; {r['new_activities']} new activities, {r['failed']} failed, "
+    line = (f"{now:%Y-%m-%d %H:%M} {what}; {r['new_sessions']} new sessions, {r['failed']} failed, "
             f"{r['health_days']} days of health data\n")
     try:
         with open(root / LOG_FILE, "a", encoding="utf-8") as f:

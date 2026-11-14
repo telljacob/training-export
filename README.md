@@ -1,9 +1,10 @@
 # Training Export
 
-A small Windows app that downloads **your own Garmin data** into a folder on your computer:
+A small Windows app that downloads **your own Garmin data** into a folder on your computer. Two parts, each one
+on or off:
 
-- **Activities:** the original `.fit` file of every activity.
-- **Health data:** sleep and its stages, breathing rate in sleep, bedtime, resting heart rate, nightly HRV, stress,
+- **Sessions:** the original `.fit` file of every activity.
+- **Health and recovery data:** sleep and its stages, breathing rate in sleep, bedtime, resting heart rate, nightly HRV, stress,
   Body Battery and weight. Each can be switched off. They go into one CSV per refresh, with the columns
   `Timestamp, Type, Value`, the shape of a TrainingPeaks metrics export.
 
@@ -23,18 +24,20 @@ No Garmin password is ever typed into this app.
 ## The folder
 
 ```
-Documents\Training Export\
+Downloads\Training Export\        (or Desktop, or any folder you choose)
   New 2026-11-21 0712\        only what that refresh found: drag all of it into your training app
-  All activities\             every .fit so far
+  All sessions\               every .fit so far
   export-state.json           what is already downloaded (ids and dates only)
   export log.txt              one line per refresh, counts only
 ```
 
-- **The first export** reaches back 24 months by default. You can choose 6, 12, 24 or 36 months, or everything.
-  Garmin limits how fast files can be fetched, so a long first export takes a while. Stopping it is fine: the next
-  refresh carries on in the same "New" folder.
-- **Every later refresh** fetches only new activities. Its health data reaches back 7 days past the last export,
-  because Garmin re-scores recent nights.
+- **The first export** reaches back 24 months by default. You can choose 6, 12, 24 or 36 months, or everything. You
+  choose this once, at setup. Garmin limits how fast files can be fetched, so a long first export takes a while.
+  Stopping it is fine: the next refresh carries on in the same "New" folder.
+- **Every later refresh** fetches only what is new since the last one. Its health data reaches back 7 days past the
+  last export, because Garmin re-scores recent nights.
+- **A part switched on later** (sessions, or one kind of health data) catches up back to where the first export
+  started.
 - **A failed download** is tried again on the next refreshes, three times at most.
 
 ## Refreshing

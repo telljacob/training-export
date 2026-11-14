@@ -6,7 +6,7 @@
 <style>
 :root{
   --bg:#1f2228; --panel:#262a31; --line:#30343c; --line2:#3b404a;
-  --ink:#e8eaee; --ink2:#a9afba; --ink3:#7d8491; --acc:#5aa0d8; --ok:#5fbf86; --no:#e07a66;
+  --ink:#e8eaee; --ink2:#a9afba; --ink3:#7d8491; --acc:#5aa0d8; --accbg:#5aa0d81f; --ok:#5fbf86; --no:#e07a66;
   --f:'Segoe UI',system-ui,-apple-system,sans-serif; --mono:Consolas,ui-monospace,monospace;
   color-scheme:dark;
 }
@@ -14,6 +14,7 @@
 html,body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.5 var(--f)}
 main{padding:18px 20px 28px;display:grid;gap:16px}
 h1{font-size:16px;font-weight:600;margin:0}
+h2{font-size:13.5px;font-weight:600;margin:0}
 .sub{color:var(--ink3);font-size:11.5px}
 .big{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:grid;gap:12px}
@@ -31,14 +32,27 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 .prog i{display:block;height:100%;width:0;background:var(--acc);transition:width .3s}
 .msg{font-size:12.5px;color:var(--ink2);min-height:1.5em}
 .msg.err{color:var(--no)} .msg.ok{color:var(--ok)}
-.steps{display:grid;gap:14px;counter-reset:s}
+.steps{display:grid;gap:18px;counter-reset:s}
 .step{display:grid;grid-template-columns:24px 1fr;gap:10px}
 .step::before{counter-increment:s;content:counter(s);width:22px;height:22px;border-radius:50%;border:1px solid var(--line2);display:grid;place-items:center;font-size:11px;color:var(--ink2)}
-.step > div{display:grid;gap:6px}
-input[type=password],input[type=text],input[type=time],select{font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 8px}
+.step > div{display:grid;gap:8px;min-width:0}
+input[type=password],input[type=time],select{font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line2);border-radius:6px;padding:6px 8px}
 input[type=password]{font-family:var(--mono);width:100%}
 .line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .path{font-family:var(--mono);font-size:11.5px;color:var(--ink2);overflow-wrap:anywhere}
+/* where: three choices, one picked */
+.where{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.where button{display:grid;gap:1px;text-align:left;padding:8px 10px;white-space:normal}
+.where button b{font-weight:600}
+.where button span{color:var(--ink3);font-size:11px}
+.where button[aria-pressed=true]{border-color:var(--acc);background:var(--accbg)}
+.dest{border-left:2px solid var(--acc);padding:2px 0 2px 10px;display:grid;gap:1px}
+/* what: two parts, health with its kinds */
+.part{border:1px solid var(--line2);border-radius:6px;padding:9px 10px;display:grid;gap:8px}
+.part > label{font-weight:600}
+.part .det{margin-left:24px;margin-top:-6px}
+.kinds{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-left:24px}
+.kinds.off{opacity:.45}
 details summary{cursor:pointer;font-weight:600;list-style:none}
 details summary::before{content:"▸ ";color:var(--ink3)}
 details[open] summary::before{content:"▾ "}
@@ -48,7 +62,6 @@ label{display:flex;gap:8px;align-items:center}
 .times{display:flex;gap:6px;flex-wrap:wrap}
 .chip{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line2);border-radius:99px;padding:2px 4px 2px 10px;font-variant-numeric:tabular-nums}
 .chip button{border:0;padding:0 6px;color:var(--ink3)}
-.kinds{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}
 .foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--ink3);font-size:11.5px}
 [hidden]{display:none!important}
 </style>
@@ -59,23 +72,31 @@ label{display:flex;gap:8px;align-items:center}
   <section id="setup" hidden>
     <div class="card">
       <h1>Set up Training Export</h1>
-      <div class="sub">Downloads your own Garmin activities and health data into a folder on this computer, through Garmin's official Personal API.</div>
+      <div class="sub">Downloads your own Garmin sessions and health data into a folder on this computer, through Garmin's official Personal API.</div>
       <div class="steps">
         <div class="step"><div>
-          <div>On Garmin Connect (web), make a Personal API key: Personal API Key → Create. One year is the longest. Garmin shows the key once, so copy it.</div>
+          <h2>Make a Personal API key</h2>
+          <div>On Garmin Connect (web): Personal API Key → Create. One year is the longest. Garmin shows the key once, so copy it.</div>
           <div><button id="openKeyPage">Open Garmin Connect</button></div>
         </div></div>
         <div class="step"><div>
-          <div>Paste the key here. It's kept in Windows' own password store on this computer and sent only to Garmin.</div>
+          <h2>Paste the key</h2>
+          <div class="sub">Kept in Windows' own password store on this computer, and sent only to Garmin.</div>
           <input id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Your Personal API key" aria-label="Personal API key">
           <div class="line"><button id="saveKey" class="pri">Check and save key</button><span id="keyMsg" class="msg"></span></div>
         </div></div>
-        <div class="step" id="stepThree"><div>
-          <div class="line">How far back: <select id="firstMonthsSetup" aria-label="How far back"></select></div>
-          <div class="line">Folder: <span class="path" id="folderSetup"></span> <button class="link" id="changeFolderSetup">Change</button></div>
-          <div class="line"><button id="startFirst" class="pri" disabled>Start first export</button><button id="backHome" hidden>Back</button></div>
+        <div class="step setupOnly"><div>
+          <h2>Where should the files go?</h2>
+          <div id="whereSetup"></div>
+        </div></div>
+        <div class="step setupOnly"><div>
+          <h2>What to download</h2>
+          <div id="whatSetup"></div>
+          <div class="line">The first export reaches back <select id="firstMonths" aria-label="How far back the first export reaches"></select></div>
+          <div class="sub">After this, every refresh fetches only what's new since the last one.</div>
         </div></div>
       </div>
+      <div class="line"><button id="startFirst" class="pri setupOnly" disabled>Start first export</button><span class="sub setupOnly" id="startNote">Save your key first.</span><button id="backHome" hidden>Back</button></div>
     </div>
   </section>
 
@@ -90,11 +111,16 @@ label{display:flex;gap:8px;align-items:center}
       <div class="msg" id="runMsg" role="status" aria-live="polite"></div>
       <div class="row"><div><div class="what">New since last time</div><div class="det" id="newDet">Nothing yet</div></div><button id="openNew" class="pri">Open folder</button></div>
       <div class="row"><div><div class="what">Everything so far</div><div class="det" id="allDet"></div></div><button id="openAll">Open folder</button></div>
-      <div class="det">Drag the files from the new folder onto your training app's upload page. A file uploaded twice is skipped there.</div>
+      <div class="det">Drag the files from the new folder onto your training app's upload page.</div>
     </div>
 
     <details class="card" id="settingsBox">
       <summary>Settings</summary>
+      <fieldset>
+        <legend>What to download</legend>
+        <div id="whatSettings"></div>
+        <div class="det" id="catchUpNote"></div>
+      </fieldset>
       <fieldset>
         <legend>When to refresh</legend>
         <label><input type="radio" name="mode" value="manual" id="modeManual"> When I press Refresh</label>
@@ -107,17 +133,9 @@ label{display:flex;gap:8px;align-items:center}
         </div>
       </fieldset>
       <fieldset>
-        <legend>Health data to include</legend>
-        <div class="kinds" id="kinds"></div>
-      </fieldset>
-      <fieldset>
-        <legend>Folder</legend>
-        <div class="line"><span class="path" id="folder"></span><button class="link" id="changeFolder">Change</button></div>
-        <div class="det">A new folder starts a fresh export there.</div>
-      </fieldset>
-      <fieldset>
-        <legend>First export reaches back</legend>
-        <div><select id="firstMonths" aria-label="First export reaches back"></select></div>
+        <legend>Where the files go</legend>
+        <div id="whereSettings"></div>
+        <div class="det">Another folder starts a fresh export there, reaching back as far as the first one did.</div>
       </fieldset>
       <div class="line"><button id="saveSettings" class="pri">Save settings</button><span class="msg" id="settingsMsg"></span></div>
     </details>
@@ -128,35 +146,98 @@ label{display:flex;gap:8px;align-items:center}
 
 <script>
 const $ = id => document.getElementById(id);
-let S = null, draft = null, polling = null;
+let S = null, draft = null, polling = null, ticks = 0, lastKinds = null;
 
-const monthsLabel = m => m === 0 ? "Everything Garmin has" : (m % 12 === 0 ? `${m / 12} year${m > 12 ? "s" : ""}` : `${m} months`);
+const monthsLabel = m => m === 0 ? "everything Garmin has" : (m % 12 === 0 ? `${m / 12} year${m > 12 ? "s" : ""}` : `${m} months`);
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 function fmtWhen(iso) {
   if (!iso) return "Never";
   const d = new Date(iso);
   return d.toLocaleDateString("en-GB", {weekday: "short", day: "numeric", month: "short"}) + ", " +
          d.toLocaleTimeString("en-GB", {hour: "2-digit", minute: "2-digit"});
 }
-function fmtDay(iso) { return iso ? new Date(iso + "T12:00").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"}) : ""; }
+function fmtDay(iso) { return iso ? new Date(iso.slice(0, 10) + "T12:00").toLocaleDateString("en-GB", {day: "numeric", month: "short", year: "numeric"}) : ""; }
 function setMsg(el, text, kind) { el.textContent = text || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
 
+// -- where: Downloads, Desktop or a folder of their own --------------------------------------------------------------
+function whichPlace(folder) {
+  const f = S.suggested_folders;
+  return folder === f.downloads ? "downloads" : folder === f.desktop ? "desktop" : "own";
+}
+function renderWhere(box) {
+  const place = whichPlace(draft.folder);
+  box.innerHTML = `
+    <div class="where" role="group" aria-label="Where the files go">
+      <button data-place="downloads" aria-pressed="${place === "downloads"}"><b>Downloads</b><span>a Training Export folder there</span></button>
+      <button data-place="desktop" aria-pressed="${place === "desktop"}"><b>Desktop</b><span>a Training Export folder on your desktop</span></button>
+      <button data-place="own" aria-pressed="${place === "own"}"><b>Choose…</b><span>any folder; you can make a new one</span></button>
+    </div>
+    <div class="dest"><span class="sub">Files go to</span><span class="path">${esc(draft.folder)}</span></div>`;
+}
+async function onWhere(e) {
+  const b = e.target.closest("button[data-place]"); if (!b) return;
+  const place = b.dataset.place;
+  if (place === "own") {
+    const f = await pywebview.api.choose_folder();
+    if (!f) return;
+    draft.folder = f;
+  } else {
+    draft.folder = S.suggested_folders[place];
+  }
+  renderWhere($("whereSetup")); renderWhere($("whereSettings"));
+}
+
+// -- what: sessions and health data, each can be off -----------------------------------------------------------------
+function renderWhat(box) {
+  const healthOn = draft.kinds.length > 0;
+  box.innerHTML = `
+    <div style="display:grid;gap:8px">
+      <div class="part">
+        <label><input type="checkbox" data-part="sessions" ${draft.sessions ? "checked" : ""}> Sessions</label>
+        <div class="det">Every activity's original .fit file, as your watch or app recorded it.</div>
+      </div>
+      <div class="part">
+        <label><input type="checkbox" data-part="health" ${healthOn ? "checked" : ""}> Health and recovery data</label>
+        <div class="det">One spreadsheet (CSV) per refresh with what you tick here:</div>
+        <div class="kinds ${healthOn ? "" : "off"}">${S.kinds.map(k =>
+          `<label><input type="checkbox" data-k="${k.id}" ${draft.kinds.includes(k.id) ? "checked" : ""} ${healthOn ? "" : "disabled"}> ${k.label}</label>`).join("")}</div>
+      </div>
+    </div>`;
+}
+function onWhat(e) {
+  const t = e.target;
+  if (t.dataset.part === "sessions") draft.sessions = t.checked;
+  if (t.dataset.part === "health") {
+    if (t.checked) draft.kinds = lastKinds && lastKinds.length ? lastKinds : S.kinds.map(k => k.id);
+    else { lastKinds = draft.kinds; draft.kinds = []; }
+  }
+  if (t.dataset.k) draft.kinds = t.checked ? [...draft.kinds, t.dataset.k] : draft.kinds.filter(x => x !== t.dataset.k);
+  renderWhat($("whatSetup")); renderWhat($("whatSettings"));
+  updateStart();
+}
+function updateStart() {
+  const nothing = !draft.sessions && !draft.kinds.length;
+  $("startFirst").disabled = !S.has_key || nothing;
+  $("startNote").textContent = !S.has_key ? "Save your key first." : nothing ? "Choose something to download." : "";
+}
+
+// -- load and render -------------------------------------------------------------------------------------------------
 async function load() {
   S = await pywebview.api.state();
   draft = JSON.parse(JSON.stringify(S.settings));
-  const firstRun = !S.has_key || !S.summary.last_export && !S.summary.unfinished && !S.run.running;
+  const exported = !!(S.summary.last_export || S.summary.unfinished);
+  const firstRun = !S.has_key || (!exported && !S.run.running);
   $("setup").hidden = !firstRun;
   $("home").hidden = firstRun;
-  for (const sel of [$("firstMonths"), $("firstMonthsSetup")]) {
-    sel.innerHTML = S.first_months.map(m => `<option value="${m}">${monthsLabel(m)}</option>`).join("");
-    sel.value = String(draft.first_months);
-  }
-  $("folderSetup").textContent = $("folder").textContent = draft.folder;
-  $("startFirst").disabled = !S.has_key;
-  const exported = !!(S.summary.last_export || S.summary.unfinished);
-  $("startFirst").hidden = exported;           // changing the key later: no second "first export"
+  $("firstMonths").innerHTML = S.first_months.map(m => `<option value="${m}">${monthsLabel(m)}</option>`).join("");
+  $("firstMonths").value = String(draft.first_months);
+  document.querySelectorAll(".setupOnly").forEach(el => el.hidden = exported);   // changing the key later
   $("backHome").hidden = !exported;
-  $("stepThree").hidden = exported;
   if (S.has_key) setMsg($("keyMsg"), "Key saved.", "ok");
+  renderWhere($("whereSetup")); renderWhere($("whereSettings"));
+  renderWhat($("whatSetup")); renderWhat($("whatSettings"));
+  updateStart();
   renderSummary();
   renderSettings();
   if (S.run.running) startPolling();
@@ -167,12 +248,17 @@ function renderSummary() {
   $("latest").textContent = s.unfinished ? "Not finished" : fmtWhen(s.last_export);
   $("latestLabel").textContent = s.unfinished ? "The last refresh stopped part-way" : "Latest export";
   const bits = [];
-  if (s.latest_new_activities) bits.push(`${s.latest_new_activities} ${s.latest_new_activities === 1 ? "activity" : "activities"}`);
+  if (s.latest_new_sessions) bits.push(plural(s.latest_new_sessions, "session", "sessions"));
   if (s.latest_new_health) bits.push("health data");
   $("newDet").textContent = s.latest_new_name ? `${s.latest_new_name} · ${bits.join(" · ") || "empty"}` : "Nothing yet";
   $("openNew").disabled = !s.latest_new;
-  $("allDet").textContent = `${s.total_activities} ${s.total_activities === 1 ? "activity" : "activities"}` + (s.first_activity ? ` · from ${fmtDay(s.first_activity)}` : "") +
-                            (s.health_through ? ` · health data to ${fmtDay(s.health_through)}` : "");
+  const all = [];
+  if (s.total_sessions) all.push(plural(s.total_sessions, "session", "sessions") + (s.first_session ? ` from ${fmtDay(s.first_session)}` : ""));
+  if (s.health_through) all.push(`health data to ${fmtDay(s.health_through)}`);
+  $("allDet").textContent = all.join(" · ") || "Nothing yet";
+  $("openAll").disabled = !s.total_sessions;
+  $("catchUpNote").textContent = s.first_from ?
+    `Switching something on later fetches it back to ${fmtDay(s.first_from)}, where your first export started.` : "";
 }
 
 function renderSettings() {
@@ -185,7 +271,6 @@ function renderSettings() {
                          || `<span class="det">No times yet</span>`;
   $("addTime").disabled = draft.times.length >= S.max_times;
   $("timesNote").textContent = `Up to ${S.max_times} times a day, at least an hour apart, so Garmin doesn't slow you down. Runs while you're signed in to Windows; a missed time runs when the computer wakes.`;
-  $("kinds").innerHTML = S.kinds.map(k => `<label><input type="checkbox" data-k="${k.id}" ${draft.kinds.includes(k.id) ? "checked" : ""}> ${k.label}</label>`).join("");
 }
 
 function startPolling() {
@@ -196,6 +281,7 @@ function startPolling() {
     const r = await pywebview.api.progress();
     $("progLabel").textContent = r.n ? `${r.label} ${r.i} of ${r.n}` : r.label;
     $("prog").style.width = r.n ? (100 * r.i / r.n) + "%" : "8%";
+    if (++ticks % 5 === 0 && r.running) { S = await pywebview.api.state(); renderSummary(); }   // counts grow live
     if (!r.running) {
       clearInterval(polling);
       $("refresh").disabled = false; $("stop").hidden = true; $("progWrap").hidden = true;
@@ -217,17 +303,17 @@ $("saveKey").onclick = async () => {
   $("keyInput").value = "";
   $("saveKey").disabled = false;
   setMsg($("keyMsg"), r.message, r.ok ? "ok" : "err");
-  if (r.ok) { S.has_key = true; $("startFirst").disabled = false; }
+  if (r.ok) { S.has_key = true; updateStart(); }
 };
-$("firstMonthsSetup").onchange = e => { draft.first_months = +e.target.value; $("firstMonths").value = e.target.value; };
-$("changeFolderSetup").onclick = $("changeFolder").onclick = async () => {
-  const f = await pywebview.api.choose_folder();
-  if (f) { draft.folder = f; $("folderSetup").textContent = $("folder").textContent = f; }
-};
+$("whereSetup").onclick = $("whereSettings").onclick = onWhere;
+$("whatSetup").onchange = $("whatSettings").onchange = onWhat;
+$("firstMonths").onchange = e => { draft.first_months = +e.target.value; };
 $("startFirst").onclick = async () => {
   const r = await pywebview.api.save_settings(draft);
   if (!r.ok) return setMsg($("keyMsg"), r.message, "err");
+  S = await pywebview.api.state();
   $("setup").hidden = true; $("home").hidden = false;
+  renderSummary();
   refresh();
 };
 
@@ -248,11 +334,6 @@ $("addTime").onclick = () => {
   const t = $("newTime").value;
   if (t && !draft.times.includes(t)) { draft.times = [...draft.times, t].sort(); $("newTime").value = ""; renderSettings(); }
 };
-$("kinds").onchange = e => {
-  const k = e.target.dataset.k; if (!k) return;
-  draft.kinds = e.target.checked ? [...draft.kinds, k] : draft.kinds.filter(x => x !== k);
-};
-$("firstMonths").onchange = e => { draft.first_months = +e.target.value; };
 $("saveSettings").onclick = async () => {
   const r = await pywebview.api.save_settings(draft);
   setMsg($("settingsMsg"), r.message, r.ok ? "ok" : "err");
