@@ -89,13 +89,10 @@ class Api:
         picked = self._window.create_file_dialog(webview.FOLDER_DIALOG) if self._window else None
         return picked[0] if picked else None
 
-    def open_folder(self, which):
-        s = settings.load()
-        root = Path(s["folder"])
-        sm = exporter.summary(root)
-        target = {"new": sm["latest_new"], "all": sm["all_dir"], "root": str(root)}.get(which)
-        if target and Path(target).exists():
-            os.startfile(target)
+    def open_folder(self):
+        root = Path(settings.load()["folder"])
+        if root.exists():
+            os.startfile(root)
 
     # -- refreshing --------------------------------------------------------------------------------------------------
     def refresh(self):

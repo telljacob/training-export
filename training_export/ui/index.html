@@ -56,6 +56,7 @@ input[type=password]{font-family:var(--mono);width:100%}
 details summary{cursor:pointer;font-weight:600;list-style:none}
 details summary::before{content:"▸ ";color:var(--ink3)}
 details[open] summary::before{content:"▾ "}
+#savedNote{font-weight:400;margin-left:8px}
 fieldset{border:0;margin:0;padding:0;display:grid;gap:6px}
 legend{font-weight:600;margin-bottom:4px;padding:0}
 label{display:flex;gap:8px;align-items:center}
@@ -109,13 +110,12 @@ label{display:flex;gap:8px;align-items:center}
       </div>
       <div id="progWrap" hidden><div class="prog"><i id="prog"></i></div><div class="det" id="progLabel"></div></div>
       <div class="msg" id="runMsg" role="status" aria-live="polite"></div>
-      <div class="row"><div><div class="what">New since last time</div><div class="det" id="newDet">Nothing yet</div></div><button id="openNew" class="pri">Open folder</button></div>
-      <div class="row"><div><div class="what">Everything so far</div><div class="det" id="allDet"></div></div><button id="openAll">Open folder</button></div>
-      <div class="det">Drag the files from the new folder onto your training app's upload page.</div>
+      <div class="row"><div><div class="what" id="dragLine">Drag the whole Training Export folder onto Brick by Brick's Upload page. Anything already uploaded is skipped.</div>
+        <div class="det" id="newDet"></div><div class="det" id="allDet"></div></div><button id="openFolder" class="pri">Open folder</button></div>
     </div>
 
     <details class="card" id="settingsBox">
-      <summary>Settings</summary>
+      <summary>Settings <span class="msg ok" id="savedNote" role="status"></span></summary>
       <fieldset>
         <legend>What to download</legend>
         <div id="whatSettings"></div>
@@ -247,16 +247,18 @@ function renderSummary() {
   const s = S.summary;
   $("latest").textContent = s.unfinished ? "Not finished" : fmtWhen(s.last_export);
   $("latestLabel").textContent = s.unfinished ? "The last refresh stopped part-way" : "Latest export";
+  $("dragLine").textContent =
+    `Drag the whole ${s.folder_name} folder onto Brick by Brick's Upload page. Anything already uploaded is skipped.`;
   const bits = [];
-  if (s.latest_new_sessions) bits.push(plural(s.latest_new_sessions, "session", "sessions"));
-  if (s.latest_new_health) bits.push("health data");
-  $("newDet").textContent = s.latest_new_name ? `${s.latest_new_name} · ${bits.join(" · ") || "empty"}` : "Nothing yet";
-  $("openNew").disabled = !s.latest_new;
+  if (s.new_sessions) bits.push(plural(s.new_sessions, "new session", "new sessions"));
+  if (s.new_health_days) bits.push(plural(s.new_health_days, "day of health data", "days of health data"));
+  $("newDet").textContent = s.new_sessions != null && (s.last_export || s.unfinished) ?
+    `${s.unfinished ? "So far this refresh" : "Last refresh"}: ${bits.join(" · ") || "nothing new"}` : "";
   const all = [];
   if (s.total_sessions) all.push(plural(s.total_sessions, "session", "sessions") + (s.first_session ? ` from ${fmtDay(s.first_session)}` : ""));
   if (s.health_through) all.push(`health data to ${fmtDay(s.health_through)}`);
-  $("allDet").textContent = all.join(" · ") || "Nothing yet";
-  $("openAll").disabled = !s.total_sessions;
+  $("allDet").textContent = all.length ? "In the folder: " + all.join(" · ") : "";
+  $("openFolder").disabled = !(s.last_export || s.unfinished);
   $("catchUpNote").textContent = s.first_from ?
     `Switching something on later fetches it back to ${fmtDay(s.first_from)}, where your first export started.` : "";
 }
@@ -320,8 +322,7 @@ $("startFirst").onclick = async () => {
 // home
 $("refresh").onclick = refresh;
 $("stop").onclick = () => { pywebview.api.stop(); $("progLabel").textContent = "Stopping after this file…"; };
-$("openNew").onclick = () => pywebview.api.open_folder("new");
-$("openAll").onclick = () => pywebview.api.open_folder("all");
+$("openFolder").onclick = () => pywebview.api.open_folder();
 $("changeKey").onclick = () => { $("home").hidden = true; $("setup").hidden = false; setMsg($("keyMsg"), ""); };
 $("backHome").onclick = () => load();
 $("removeKey").onclick = async () => { await pywebview.api.remove_key(); load(); };
@@ -336,9 +337,13 @@ $("addTime").onclick = () => {
 };
 $("saveSettings").onclick = async () => {
   const r = await pywebview.api.save_settings(draft);
-  setMsg($("settingsMsg"), r.message, r.ok ? "ok" : "err");
-  if (r.ok) { S = await pywebview.api.state(); draft = JSON.parse(JSON.stringify(S.settings)); renderSettings(); renderSummary(); }
+  if (!r.ok) return setMsg($("settingsMsg"), r.message, "err");     // stays open, the reason next to the button
+  setMsg($("settingsMsg"), "");
+  $("settingsBox").open = false;                                     // a good save folds Settings away
+  $("savedNote").textContent = r.message;                            // "Saved." beside the folded heading
+  S = await pywebview.api.state(); draft = JSON.parse(JSON.stringify(S.settings)); renderSettings(); renderSummary();
 };
+$("settingsBox").addEventListener("toggle", () => { if ($("settingsBox").open) $("savedNote").textContent = ""; });
 
 window.addEventListener("pywebviewready", async () => {
   await load();

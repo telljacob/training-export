@@ -1,24 +1,29 @@
 r"""
-One refresh: new sessions as original .fit files, and health data as one CSV, into a folder of their own.
+One refresh: new sessions as original .fit files, and health data as a CSV, into one folder the athlete drags onto
+their training app's Upload page as a whole. The app skips what it already has.
 
     <export folder>\
-        New 2026-11-21 0712\        only what this refresh found: the athlete drags all of it onto Upload
-            2026-11-21 0712 running 12345678901.fit
-            health-2026-11-14-2026-11-21.csv
-        All sessions\              every .fit so far, for a fresh start somewhere else
-        export-state.json          what is already downloaded (ids and dates only)
-        export log.txt             one line per refresh, counts only
+        Activities\                 every session's .fit so far
+            2026-11-21 0712 running 12345678901.fit     (a name never changes, so a re-drop is skipped by name)
+        Health\                     one CSV per refresh, holding only that refresh's date window
+            health-2026-11-14-2026-11-21 0712.csv
+        export-state.json           what is already downloaded (ids and dates only)
+        export log.txt              one line per refresh, counts only
 
 Sessions and health data are two parts the athlete can switch on or off. The first export's start (how far back) is
 asked once; after that each part picks up where it got to, and a part switched on later reaches back to that same
 start. Health is tracked per kind, so a kind switched on later (weight, say) catches up the same way.
 
-The health file's name carries its date window (start-end), which is how a training app can tell the newest export
-of a day from an older one. Every health window reaches 7 days back past the last export, because Garmin re-scores a
-night or two after it ends.
+A health file is written once and never changed. Its name carries its date window (start-end) and the refresh's
+time, so every refresh's file has a name of its own: an app that skips repeats by name still takes the new one, and
+reads the window end from the name to let the newest export win a day. Every window reaches 7 days back past the
+last export, because Garmin re-scores a night or two after it ends.
 
 A refresh can be stopped, or stopped by Garmin's rate limit, at any point: every downloaded file is recorded at once,
-and the next refresh carries on in the same "New" folder.
+and the next refresh carries on.
+
+Older layouts (v0.1/v0.2: "All activities" or "All sessions", plus a dated "New ..." folder per refresh) are folded
+into Activities and Health on the next refresh, so nobody is left with two copies.
 """
 import csv
 import datetime as dt
@@ -34,8 +39,10 @@ from . import garmin, health
 STATE_FILE = "export-state.json"
 LOG_FILE = "export log.txt"
 LOCK_FILE = ".export.lock"
-ALL_DIR = "All sessions"
-OLD_ALL_DIR = "All activities"     # v0.1.0's name, renamed on the first refresh
+ACT_DIR = "Activities"
+HEALTH_DIR = "Health"
+OLD_ACT_DIRS = ("All sessions", "All activities")     # v0.2 and v0.1 names, folded into Activities
+OLD_BATCH_RE = re.compile(r"New \d{4}-\d{2}-\d{2} \d{4}$")
 HEALTH_OVERLAP_DAYS = 7
 ACTIVITY_OVERLAP_DAYS = 3     # a watch that syncs a day late still has its session picked up
 LOCK_STALE_S = 12 * 3600
@@ -57,12 +64,17 @@ def months_ago(today: dt.date, months: int) -> dt.date:
 
 
 def file_name(a: dict) -> str:
-    """'2026-11-21 0712 running 12345678901.fit': sorts by date, says the sport, never collides."""
+    """'2026-11-21 0712 running 12345678901.fit': sorts by date, says the sport, never collides, never changes."""
     start = (a.get("startTimeLocal") or "")[:16]
     stamp = start[:10] + " " + start[11:16].replace(":", "") if len(start) >= 16 else "unknown-date"
     kind = ((a.get("activityType") or {}).get("typeKey") or "activity").replace("_", " ")
     kind = re.sub(r"[^a-z0-9 ]", "", kind.lower()).strip() or "activity"
     return f"{stamp} {kind} {int(a['activityId'])}.fit"
+
+
+def health_name(start: dt.date, end: dt.date, now: dt.datetime) -> str:
+    """'health-2026-11-14-2026-11-21 0712.csv': the window, then the refresh's time, so no two refreshes share a name."""
+    return f"health-{start.isoformat()}-{end.isoformat()} {now:%H%M}.csv"
 
 
 def write_atomic(path: Path, data: bytes) -> None:
@@ -84,14 +96,50 @@ def _first_session_date(folder: Path):
     return names[0][:10] if names and re.match(r"\d{4}-\d{2}-\d{2}", names[0]) else None
 
 
-def _all_dir(root: Path) -> Path:
-    old, new = root / OLD_ALL_DIR, root / ALL_DIR
-    if old.is_dir() and not new.exists():
+def _acts_dir(root: Path) -> Path:
+    """Activities, or before the first refresh of this version, the old folder that holds the sessions."""
+    for name in (ACT_DIR,) + OLD_ACT_DIRS:
+        if (root / name).is_dir():
+            return root / name
+    return root / ACT_DIR
+
+
+# -- folding the old layout in ---------------------------------------------------------------------------------------
+def _move_into(src: Path, dst: Path, pattern: str) -> None:
+    """Move src's files matching pattern into dst. A file dst already has (same name and size) is a duplicate and
+    goes; one that differs is left where it is, never overwritten."""
+    for f in sorted(src.glob(pattern)):
+        target = dst / f.name
         try:
-            old.rename(new)
+            if target.exists():
+                if target.stat().st_size == f.stat().st_size:
+                    f.unlink()
+                continue
+            dst.mkdir(exist_ok=True)
+            os.replace(f, target)
         except OSError:
-            return old
-    return new
+            pass
+
+
+def _remove_if_empty(folder: Path) -> None:
+    try:
+        folder.rmdir()
+    except OSError:
+        pass
+
+
+def fold_old_layout(root: Path) -> None:
+    """Older versions' folders into Activities and Health; each old folder goes once it is empty."""
+    for name in OLD_ACT_DIRS:
+        old = root / name
+        if old.is_dir():
+            _move_into(old, root / ACT_DIR, "*.fit")
+            _remove_if_empty(old)
+    for batch in sorted(root.glob("New *")):
+        if batch.is_dir() and OLD_BATCH_RE.match(batch.name):
+            _move_into(batch, root / ACT_DIR, "*.fit")
+            _move_into(batch, root / HEALTH_DIR, "health-*.csv")
+            _remove_if_empty(batch)
 
 
 # -- state -----------------------------------------------------------------------------------------------------------
@@ -104,15 +152,15 @@ def load_state(root: Path) -> dict:
     s.setdefault("failures", {})          # session id -> {"date": day, "tries": n}: tried again next refresh
     for k in ("last_export", "first_from", "activities_through", "pending"):
         s.setdefault(k, None)
+    lc = s.get("last_counts")             # what the latest refresh brought; None before this version's first one
+    s["last_counts"] = lc if isinstance(lc, dict) else None
     ht = s.get("health_through")
     if isinstance(ht, str):               # v0.1.0 kept one date for every kind (all were on)
         ht = {k: ht for k in health.ALL_KINDS}
     s["health_through"] = ht if isinstance(ht, dict) else {}
     if not s["first_from"] and s["activities_through"]:     # v0.1.0 did not record where the export started
-        s["first_from"] = _first_session_date(root / ALL_DIR) or _first_session_date(root / OLD_ALL_DIR) \
-            or s["activities_through"]
-    if isinstance(s["pending"], dict) and "folder" not in s["pending"]:
-        s["pending"] = None
+        s["first_from"] = _first_session_date(_acts_dir(root)) or s["activities_through"]
+    s["pending"] = bool(s["pending"])     # v0.2 kept the "New" folder's name here
     return s
 
 
@@ -121,27 +169,20 @@ def save_state(root: Path, state: dict) -> None:
 
 
 def summary(root: Path) -> dict:
-    """What the window shows: latest export, counts, the newest 'New' folder."""
+    """What the window shows: the latest export, what it brought, what the folder holds."""
     s = load_state(root)
-    news = sorted((p for p in root.glob("New *") if p.is_dir()), key=lambda p: p.name) if root.exists() else []
-    latest = news[-1] if news else None
-    all_dir = root / ALL_DIR if (root / ALL_DIR).exists() else root / OLD_ALL_DIR
-
-    def count(folder, pattern):
-        return sum(1 for _ in folder.glob(pattern)) if folder and folder.exists() else 0
+    acts = _acts_dir(root)
     return {
         "folder": str(root),
-        "all_dir": str(all_dir),
+        "folder_name": root.name,
         "last_export": s["last_export"],
         "first_from": s["first_from"],
         "health_through": max(s["health_through"].values(), default=None),
-        "first_session": _first_session_date(all_dir),
-        "total_sessions": count(all_dir, "*.fit"),
-        "latest_new": str(latest) if latest else None,
-        "latest_new_name": latest.name if latest else None,
-        "latest_new_sessions": count(latest, "*.fit"),
-        "latest_new_health": count(latest, "health-*.csv"),
-        "unfinished": bool(s["pending"]),
+        "first_session": _first_session_date(acts),
+        "total_sessions": sum(1 for _ in acts.glob("*.fit")) if acts.exists() else 0,
+        "new_sessions": (s["last_counts"] or {}).get("sessions"),
+        "new_health_days": (s["last_counts"] or {}).get("health_days"),
+        "unfinished": s["pending"],
     }
 
 
@@ -191,18 +232,16 @@ def refresh(client, root: Path, kinds, first_months: int, sessions: bool = True,
     root.mkdir(parents=True, exist_ok=True)
 
     with Lock(root):
+        fold_old_layout(root)
         state = load_state(root)
-        all_dir = _all_dir(root)
+        acts_dir, health_dir = root / ACT_DIR, root / HEALTH_DIR
         if not state["first_from"]:
             state["first_from"] = months_ago(today, first_months).isoformat()
         first = dt.date.fromisoformat(state["first_from"])
-        if state["pending"]:
-            batch = root / state["pending"]["folder"]
-        else:
-            batch = root / f"New {now:%Y-%m-%d %H%M}"
-            state["pending"] = {"folder": batch.name}
-            save_state(root, state)
-        batch.mkdir(exist_ok=True)
+        if not state["pending"] or not state["last_counts"]:   # a fresh refresh; a stopped one keeps counting
+            state.update(pending=True, last_counts={"sessions": 0, "health_days": 0})
+        save_state(root, state)
+        counts = state["last_counts"]
 
         act_from = _from(state["activities_through"], first, ACTIVITY_OVERLAP_DAYS)
         failures = state["failures"]
@@ -212,7 +251,7 @@ def refresh(client, root: Path, kinds, first_months: int, sessions: bool = True,
         health_from = min((_from(state["health_through"].get(k), first, HEALTH_OVERLAP_DAYS) for k in kinds),
                           default=today)
 
-        result = {"folder": str(batch), "new_sessions": 0, "failed": 0, "health_rows": 0, "health_days": 0,
+        result = {"folder": str(root), "new_sessions": 0, "failed": 0, "health_rows": 0, "health_days": 0,
                   "stopped": False}
         error = None
         try:
@@ -234,7 +273,7 @@ def refresh(client, root: Path, kinds, first_months: int, sessions: bool = True,
                     acts.sort(key=lambda a: a.get("startTimeLocal") or "")
 
             if acts:
-                all_dir.mkdir(exist_ok=True)
+                acts_dir.mkdir(exist_ok=True)
             for i, a in enumerate(acts, 1):
                 if should_stop():
                     result["stopped"] = True
@@ -254,34 +293,30 @@ def refresh(client, root: Path, kinds, first_months: int, sessions: bool = True,
                     f["tries"] += 1
                     save_state(root, state)
                     continue
-                name = file_name(a)
-                write_atomic(batch / name, data)
-                write_atomic(all_dir / name, data)
+                write_atomic(acts_dir / file_name(a), data)
                 state["done_ids"].append(int(a["activityId"]))
                 failures.pop(aid, None)
+                counts["sessions"] += 1
                 save_state(root, state)
                 result["new_sessions"] += 1
 
             if not result["stopped"] and kinds:
                 progress("Health data", 0, 0)
                 rows = health.rows(client, health_from, today, kinds)
-                for old in batch.glob("health-*.csv"):
-                    old.unlink()
                 if rows:
-                    write_atomic(batch / f"health-{health_from.isoformat()}-{today.isoformat()}.csv", health_csv(rows))
+                    health_dir.mkdir(exist_ok=True)
+                    write_atomic(health_dir / health_name(health_from, today, now), health_csv(rows))
                 result["health_rows"] = len(rows)
                 result["health_days"] = len({r[0][:10] for r in rows})
+                counts["health_days"] = result["health_days"]
 
             if not result["stopped"]:
-                state.update(pending=None, last_export=now.isoformat(timespec="seconds"))
+                state.update(pending=False, last_export=now.isoformat(timespec="seconds"))
                 if sessions:
                     state["activities_through"] = today.isoformat()
                 for k in kinds:
                     state["health_through"][k] = today.isoformat()
                 save_state(root, state)
-                if not any(batch.iterdir()):
-                    batch.rmdir()
-                    result["folder"] = None
         except Exception as e:
             error = e
             save_state(root, state)

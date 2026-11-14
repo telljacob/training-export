@@ -8,8 +8,8 @@ on or off:
   Body Battery and weight. Each can be switched off. They go into one CSV per refresh, with the columns
   `Timestamp, Type, Value`, the shape of a TrainingPeaks metrics export.
 
-You then drag the files into whatever training app you use. Training Export never sends your data anywhere except
-from Garmin to your own folder.
+You then drag the whole folder onto Brick by Brick's Upload page, which skips anything it already has. Training
+Export never sends your data anywhere except from Garmin to your own folder.
 
 ## How it reads Garmin
 
@@ -24,16 +24,23 @@ No Garmin password is ever typed into this app.
 ## The folder
 
 ```
-Downloads\Training Export\        (or Desktop, or any folder you choose)
-  New 2026-11-21 0712\        only what that refresh found: drag all of it into your training app
-  All sessions\               every .fit so far
+Downloads\Training Export\        (or Desktop, or any folder you choose): drag all of it onto Upload
+  Activities\                 every session's .fit, e.g. "2026-11-21 0712 running 12345678901.fit"
+  Health\                     one CSV per refresh, e.g. "health-2026-11-14-2026-11-21 0712.csv"
   export-state.json           what is already downloaded (ids and dates only)
   export log.txt              one line per refresh, counts only
 ```
 
+- **Names never change.** An activity's file keeps its name, so a re-dropped folder is skipped by name. Each
+  health file is written once, and its name carries its date window and the refresh's time, so every refresh's file
+  is new to Upload. Where two files cover the same day, the one whose window ends later wins.
+- **Older versions' folders** ("All activities" or "All sessions", and the dated "New ..." folders) are folded into
+  Activities and Health on the next refresh. Duplicates go; a file that differs is left where it was, never
+  overwritten.
+
 - **The first export** reaches back 24 months by default. You can choose 6, 12, 24 or 36 months, or everything. You
   choose this once, at setup. Garmin limits how fast files can be fetched, so a long first export takes a while.
-  Stopping it is fine: the next refresh carries on in the same "New" folder.
+  Stopping it is fine: the next refresh carries on where it stopped.
 - **Every later refresh** fetches only what is new since the last one. Its health data reaches back 7 days past the
   last export, because Garmin re-scores recent nights.
 - **A part switched on later** (sessions, or one kind of health data) catches up back to where the first export
