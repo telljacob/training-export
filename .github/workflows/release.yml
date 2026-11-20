@@ -21,7 +21,7 @@ jobs:
         include:
           - os: windows-latest
             file: Training-Export-Windows.exe
-          - os: macos-14
+          - os: macos-latest
             file: Training-Export-Mac.zip
     runs-on: ${{ matrix.os }}
     steps:
