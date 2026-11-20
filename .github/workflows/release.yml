@@ -1,0 +1,72 @@
+# Builds both downloads on GitHub's own machines and publishes them as a release when a version tag is pushed
+# (git tag v1.1.0 && git push origin v1.1.0). The file names never change, so these links always give the newest:
+#   https://github.com/<owner>/<repo>/releases/latest/download/Training-Export-Windows.exe
+#   https://github.com/<owner>/<repo>/releases/latest/download/Training-Export-Mac.zip
+# Tests run first on each system; if any fail, nothing is published.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:       # a trial build: the files are kept on the run's page, nothing is published
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            file: Training-Export-Windows.exe
+          - os: macos-14
+            file: Training-Export-Mac.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - run: python -m pytest -q
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name "Training Export" `
+            --add-data "training_export/ui:training_export/ui" --collect-submodules keyring run.py
+          Move-Item "dist/Training Export.exe" "${{ matrix.file }}"
+
+      - name: Build (Mac)
+        if: runner.os == 'macOS'
+        run: |
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --name "Training Export" \
+            --osx-bundle-identifier local.training-export \
+            --add-data "training_export/ui:training_export/ui" --collect-submodules keyring run.py
+          ditto -c -k --sequesterRsrc --keepParent "dist/Training Export.app" "${{ matrix.file }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.file }}
+          path: ${{ matrix.file }}
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" Training-Export-Windows.exe Training-Export-Mac.zip \
+            --repo "$GITHUB_REPOSITORY" --title "Training Export $GITHUB_REF_NAME" \
+            --notes "Download Training-Export-Windows.exe for Windows or Training-Export-Mac.zip for a Mac (Apple silicon). See the README for the first-open steps."

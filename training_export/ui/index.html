@@ -82,7 +82,7 @@ label{display:flex;gap:8px;align-items:center}
         </div></div>
         <div class="step"><div>
           <h2>Paste the key</h2>
-          <div class="sub">Kept in Windows' own password store on this computer, and sent only to Garmin.</div>
+          <div class="sub">Kept in this computer's own password store (Credential Manager on Windows, Keychain on a Mac), and sent only to Garmin.</div>
           <input id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Your Personal API key" aria-label="Personal API key">
           <div class="line"><button id="saveKey" class="pri">Check and save key</button><span id="keyMsg" class="msg"></span></div>
         </div></div>
@@ -272,7 +272,7 @@ function renderSettings() {
   $("times").innerHTML = draft.times.map(t => `<span class="chip">${t}<button data-t="${t}" aria-label="Remove ${t}">✕</button></span>`).join("")
                          || `<span class="det">No times yet</span>`;
   $("addTime").disabled = draft.times.length >= S.max_times;
-  $("timesNote").textContent = `Up to ${S.max_times} times a day, at least an hour apart, so Garmin doesn't slow you down. Runs while you're signed in to Windows; a missed time runs when the computer wakes.`;
+  $("timesNote").textContent = `Up to ${S.max_times} times a day, at least an hour apart, so Garmin doesn't slow you down. Runs while you're signed in to this computer; a missed time runs when the computer wakes.`;
 }
 
 function startPolling() {

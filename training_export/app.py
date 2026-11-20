@@ -1,12 +1,14 @@
 """
 The window (pywebview) and the windowless refresh the scheduled task runs.
 
-    Training Export.exe              the window
-    Training Export.exe --refresh    one refresh, no window (what the automatic times run)
+    Training Export(.exe)              the window
+    Training Export(.exe) --refresh    one refresh, no window (what the automatic times run)
+On a Mac the program is Training Export.app/Contents/MacOS/Training Export.
 """
 import argparse
 import datetime as dt
 import os
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -92,7 +94,10 @@ class Api:
     def open_folder(self):
         root = Path(settings.load()["folder"])
         if root.exists():
-            os.startfile(root)
+            if sys.platform == "win32":
+                os.startfile(root)
+            else:
+                subprocess.run(["open", str(root)], check=False)
 
     # -- refreshing --------------------------------------------------------------------------------------------------
     def refresh(self):
@@ -163,6 +168,12 @@ def main(argv=None) -> int:
     if args.refresh:
         return headless()
     import webview
+    try:
+        s = settings.load()
+        if s["mode"] == "auto":         # the program may have moved since (a Mac app dragged into Applications)
+            schedule.install(s["times"])
+    except Exception:
+        pass                            # the window still opens; saving Settings again says what went wrong
     api = Api()
     api._window = webview.create_window("Training Export", str(resource("index.html")), js_api=api,
                                        width=520, height=720, min_size=(420, 560), background_color="#1f2228")

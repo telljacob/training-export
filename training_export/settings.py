@@ -1,11 +1,15 @@
 """
-The athlete's choices (a small JSON file in their own AppData) and their Personal API key (Windows' password store,
-Credential Manager, never a file). Nothing here leaves the computer.
+The athlete's choices (a small JSON file in their own AppData on Windows, Application Support on a Mac) and their
+Personal API key (the system's password store: Credential Manager on Windows, the Keychain on a Mac; never a file).
+Nothing here leaves the computer.
 """
 import json
 import os
 import re
+import sys
 from pathlib import Path
+
+MAC = sys.platform == "darwin"
 
 from . import health
 
@@ -22,7 +26,9 @@ FOLDER_IDS = {      # Windows' own ids for these folders, so a Desktop moved to 
 
 
 def known_folder(name: str) -> Path:
-    """The athlete's Downloads or Desktop folder, wherever Windows keeps it."""
+    """The athlete's Downloads or Desktop folder, wherever Windows keeps it (on a Mac: in the home folder)."""
+    if sys.platform != "win32":
+        return Path.home() / ("Downloads" if name == "downloads" else "Desktop")
     try:
         import ctypes
         from ctypes import wintypes
@@ -59,6 +65,8 @@ DEFAULTS = {
 
 
 def config_dir() -> Path:
+    if MAC:
+        return Path.home() / "Library" / "Application Support" / APP_NAME
     base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
     return Path(base) / APP_NAME
 
@@ -123,7 +131,7 @@ def clean(s: dict) -> dict:
 
 # -- the key ---------------------------------------------------------------------------------------------------------
 def _keyring():
-    import keyring                # Windows Credential Manager on Windows
+    import keyring                # Credential Manager on Windows, the Keychain on a Mac
     return keyring
 
 
